@@ -3,9 +3,16 @@ from my_agents.image_agent import image_agent
 from config.settings import QA_THRESHOLD, MAX_RETRIES
 from tools.image_tool import generate_image
 from tools.qa_tool import analyze_image
+from langfuse import observe, get_client
 import time
+import os
+
+os.environ["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+os.environ["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY", "")
+os.environ["LANGFUSE_BASE_URL"] = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
 
 
+@observe()
 async def run_workflow_a(creative_brief: str) -> dict:
     start_time = time.time()
     retries = 0
@@ -29,6 +36,7 @@ async def run_workflow_a(creative_brief: str) -> dict:
         score = qa_result.get("overall_score", 0)
 
         if score >= QA_THRESHOLD:
+            get_client().flush()
             return {
                 "status": "approved",
                 "image_base64": image_result["image_base64"],
@@ -43,6 +51,7 @@ async def run_workflow_a(creative_brief: str) -> dict:
             feedback = qa_result.get("feedback", "Quality not sufficient")
             retries += 1
 
+    get_client().flush()
     return {
         "status": "max_retries_reached",
         "image_base64": image_result["image_base64"],
