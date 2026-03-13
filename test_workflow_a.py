@@ -1,5 +1,5 @@
-import os
-os.environ["OPENAI_API_KEY"] = "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"
+from dotenv import load_dotenv
+load_dotenv()
 
 from agents import set_tracing_disabled
 set_tracing_disabled(True)
