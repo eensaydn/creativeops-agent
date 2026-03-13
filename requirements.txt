@@ -1,0 +1,12 @@
+openai-agents
+openai
+google-genai
+fastapi
+uvicorn
+langfuse
+modal
+gradio
+mcp
+python-dotenv
+httpx
+Pillow
