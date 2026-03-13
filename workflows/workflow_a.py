@@ -1,15 +1,12 @@
 from agents import Runner
 from my_agents.image_agent import image_agent
-from my_agents.qa_agent import qa_agent
 from config.settings import QA_THRESHOLD, MAX_RETRIES
 from tools.image_tool import generate_image
 from tools.qa_tool import analyze_image
-import json
 import time
 
 
 async def run_workflow_a(creative_brief: str) -> dict:
-    total_cost = 0
     start_time = time.time()
     retries = 0
     feedback = ""
@@ -28,11 +25,7 @@ async def run_workflow_a(creative_brief: str) -> dict:
         if "error" in image_result:
             return {"status": "error", "result": image_result["error"], "retries": retries}
 
-        qa_result = await analyze_image(
-            image_result["image_base64"],
-            creative_brief
-        )
-
+        qa_result = await analyze_image(image_result["image_base64"], creative_brief)
         score = qa_result.get("overall_score", 0)
 
         if score >= QA_THRESHOLD:
@@ -44,7 +37,7 @@ async def run_workflow_a(creative_brief: str) -> dict:
                 "qa_score": score,
                 "qa_feedback": qa_result.get("feedback", ""),
                 "retries": retries,
-                "total_time": round(time.time() - start_time, 2)
+                "total_time": round(time.time() - start_time, 2),
             }
         else:
             feedback = qa_result.get("feedback", "Quality not sufficient")
@@ -58,5 +51,5 @@ async def run_workflow_a(creative_brief: str) -> dict:
         "qa_score": score,
         "qa_feedback": qa_result.get("feedback", ""),
         "retries": retries,
-        "total_time": round(time.time() - start_time, 2)
+        "total_time": round(time.time() - start_time, 2),
     }
