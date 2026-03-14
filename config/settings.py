@@ -10,6 +10,7 @@ LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
 
 FLUX_ENDPOINT = "https://eensaydn--feraset-image-server-fluximageserver-generate.modal.run"
+VIDEO_ENDPOINT = "https://eensaydn--wan-video-gen-generate-video.modal.run"
 
 QA_THRESHOLD = 7.0
 MAX_RETRIES = 2
