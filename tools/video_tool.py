@@ -3,7 +3,7 @@ from config.settings import VIDEO_ENDPOINT
 
 
 async def generate_video(image_base64: str, prompt: str, num_frames: int = 16) -> dict:
-    async with httpx.AsyncClient(timeout=600) as client:
+    async with httpx.AsyncClient(timeout=600, follow_redirects=True) as client:
         response = await client.post(VIDEO_ENDPOINT, json={
             "image_base64": image_base64,
             "prompt": prompt,

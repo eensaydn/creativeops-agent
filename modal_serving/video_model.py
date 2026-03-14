@@ -13,33 +13,41 @@ image = modal.Image.debian_slim(python_version="3.11").pip_install(
     "sentencepiece",
     "Pillow",
     "fastapi[standard]",
+    "ftfy",
 )
 
 model_cache = modal.Volume.from_name("video-model-cache", create_if_missing=True)
 
 
-@app.cls(gpu="A100", scaledown_window=60, image=image, timeout=600, volumes={"/models": model_cache})
+@app.cls(
+    gpu="A100-80GB",
+    scaledown_window=60,
+    image=image,
+    timeout=600,
+    volumes={"/models": model_cache},
+    secrets=[modal.Secret.from_name("huggingface-secret", required_keys=["HF_TOKEN"])],
+)
 class WanVideoModel:
     @modal.enter()
     def load_model(self):
         import torch
+        import os
         from diffusers import WanImageToVideoPipeline
-        from diffusers.utils import load_image
 
         self.pipe = WanImageToVideoPipeline.from_pretrained(
             "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
             torch_dtype=torch.float16,
             cache_dir="/models",
+            token=os.environ["HF_TOKEN"],
         )
-        self.pipe.to("cuda")
+        self.pipe.enable_model_cpu_offload()
 
     @modal.method()
     def generate(self, image_base64: str, prompt: str, num_frames: int = 16):
-        from PIL import Image
-        import torch
+        from PIL import Image as PILImage
 
         img_bytes = base64.b64decode(image_base64)
-        input_image = Image.open(io.BytesIO(img_bytes)).resize((832, 480))
+        input_image = PILImage.open(io.BytesIO(img_bytes)).resize((832, 480))
 
         started = time.perf_counter()
 
@@ -49,6 +57,7 @@ class WanVideoModel:
             num_frames=num_frames,
             guidance_scale=5.0,
             num_inference_steps=20,
+            output_type="pil",
         )
 
         frames = output.frames[0]
