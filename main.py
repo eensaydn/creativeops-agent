@@ -52,15 +52,17 @@ def run_image_workflow(creative_brief):
     if result.get("status") == "error":
         return None, f"Error: {result.get('result')}"
     img_bytes = base64.b64decode(result["image_base64"])
-    with open("/tmp/output.png", "wb") as f:
+    with open("output.png", "wb") as f:
         f.write(img_bytes)
+    cost = result.get("cost_breakdown", {})
     info = f"""Status: {result['status']}
 QA Score: {result['qa_score']}/10
 QA Feedback: {result['qa_feedback']}
 Model: {result['model_used']}
 Retries: {result['retries']}
-Total Time: {result['total_time']}s"""
-    return "/tmp/output.png", info
+Total Time: {result['total_time']}s
+Cost: ${cost.get('total_cost', 'N/A')} (LLM: ${cost.get('llm_cost', 'N/A')}, GPU: ${cost.get('gpu_cost', 'N/A')})"""
+    return "output.png", info
 
 
 def run_video_workflow(image_file, motion_prompt):
@@ -72,14 +74,19 @@ def run_video_workflow(image_file, motion_prompt):
     if result.get("status") == "error":
         return None, f"Error: {result.get('result')}"
     video_bytes = base64.b64decode(result["video_base64"])
-    with open("/tmp/output.gif", "wb") as f:
+    with open("output.gif", "wb") as f:
         f.write(video_bytes)
+    cost = result.get("cost_breakdown", {})
     info = f"""Status: {result['status']}
+QA Score: {result.get('qa_score', 'N/A')}/10
+QA Feedback: {result.get('qa_feedback', 'N/A')}
 Model: {result['model_used']}
+Enhanced Prompt: {result.get('enhanced_prompt', 'N/A')}
 Frames: {result['num_frames']}
 Latency: {result.get('latency_seconds', 'N/A')}s
-Total Time: {result['total_time']}s"""
-    return "/tmp/output.gif", info
+Total Time: {result['total_time']}s
+Cost: ${cost.get('total_cost', 'N/A')} (LLM: ${cost.get('llm_cost', 'N/A')}, GPU: ${cost.get('gpu_cost', 'N/A')})"""
+    return "output.gif", info
 
 
 with gr.Blocks(title="CreativeOps Agent") as demo:
@@ -89,7 +96,7 @@ with gr.Blocks(title="CreativeOps Agent") as demo:
         brief_input = gr.Textbox(label="Creative Brief", placeholder="e.g. A cyberpunk samurai in neon-lit Tokyo")
         generate_btn = gr.Button("Generate Image")
         output_image = gr.Image(label="Generated Image")
-        output_info = gr.Textbox(label="Details", lines=6)
+        output_info = gr.Textbox(label="Details", lines=8)
         generate_btn.click(fn=run_image_workflow, inputs=[brief_input], outputs=[output_image, output_info])
 
     with gr.Tab("Video Generation"):
@@ -97,7 +104,7 @@ with gr.Blocks(title="CreativeOps Agent") as demo:
         motion_input = gr.Textbox(label="Motion Prompt", placeholder="e.g. Slow camera pan to the right")
         video_btn = gr.Button("Generate Video")
         output_video = gr.Image(label="Generated Video (GIF)")
-        video_info = gr.Textbox(label="Details", lines=5)
+        video_info = gr.Textbox(label="Details", lines=8)
         video_btn.click(fn=run_video_workflow, inputs=[image_input, motion_input], outputs=[output_video, video_info])
 
 app = gr.mount_gradio_app(app, demo, path="/ui")

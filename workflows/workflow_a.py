@@ -11,12 +11,15 @@ os.environ["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 os.environ["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY", "")
 os.environ["LANGFUSE_BASE_URL"] = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
 
+GPU_COST_PER_SECOND_L40S = 0.000542
+
 
 @observe()
 async def run_workflow_a(creative_brief: str) -> dict:
     start_time = time.time()
     retries = 0
     feedback = ""
+    costs = {"llm": 0, "gpu": 0}
 
     while retries <= MAX_RETRIES:
         if feedback:
@@ -26,16 +29,22 @@ async def run_workflow_a(creative_brief: str) -> dict:
 
         result = await Runner.run(image_agent, prompt)
         enhanced_prompt = result.final_output
+        costs["llm"] += 0.001
 
         image_result = await generate_image(enhanced_prompt)
 
         if "error" in image_result:
             return {"status": "error", "result": image_result["error"], "retries": retries}
 
+        gpu_latency = image_result.get("latency_seconds", 0)
+        costs["gpu"] += gpu_latency * GPU_COST_PER_SECOND_L40S
+
         qa_result = await analyze_image(image_result["image_base64"], creative_brief)
         score = qa_result.get("overall_score", 0)
+        costs["llm"] += 0.002
 
         if score >= QA_THRESHOLD:
+            total_cost = round(costs["llm"] + costs["gpu"], 4)
             get_client().flush()
             return {
                 "status": "approved",
@@ -46,11 +55,17 @@ async def run_workflow_a(creative_brief: str) -> dict:
                 "qa_feedback": qa_result.get("feedback", ""),
                 "retries": retries,
                 "total_time": round(time.time() - start_time, 2),
+                "cost_breakdown": {
+                    "llm_cost": round(costs["llm"], 4),
+                    "gpu_cost": round(costs["gpu"], 4),
+                    "total_cost": total_cost,
+                },
             }
         else:
             feedback = qa_result.get("feedback", "Quality not sufficient")
             retries += 1
 
+    total_cost = round(costs["llm"] + costs["gpu"], 4)
     get_client().flush()
     return {
         "status": "max_retries_reached",
@@ -61,4 +76,9 @@ async def run_workflow_a(creative_brief: str) -> dict:
         "qa_feedback": qa_result.get("feedback", ""),
         "retries": retries,
         "total_time": round(time.time() - start_time, 2),
+        "cost_breakdown": {
+            "llm_cost": round(costs["llm"], 4),
+            "gpu_cost": round(costs["gpu"], 4),
+            "total_cost": total_cost,
+        },
     }
