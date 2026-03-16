@@ -3,7 +3,7 @@ from my_agents.image_agent import image_agent
 from config.settings import QA_THRESHOLD, MAX_RETRIES
 from tools.image_tool import generate_image
 from tools.qa_tool import analyze_image
-from langfuse import observe, get_client
+from langfuse.decorators import observe, langfuse_context
 import time
 import os
 
@@ -12,6 +12,7 @@ os.environ["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY", "")
 os.environ["LANGFUSE_BASE_URL"] = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
 
 GPU_COST_PER_SECOND_L40S = 0.000542
+AGENT_CALL_ESTIMATE = 0.001  # estimated cost for prompt enhancement call
 
 
 @observe()
@@ -20,6 +21,7 @@ async def run_workflow_a(creative_brief: str) -> dict:
     retries = 0
     feedback = ""
     costs = {"llm": 0, "gpu": 0}
+    total_tokens = {"input": 0, "output": 0}
 
     while retries <= MAX_RETRIES:
         if feedback:
@@ -29,7 +31,7 @@ async def run_workflow_a(creative_brief: str) -> dict:
 
         result = await Runner.run(image_agent, prompt)
         enhanced_prompt = result.final_output
-        costs["llm"] += 0.001
+        costs["llm"] += AGENT_CALL_ESTIMATE
 
         image_result = await generate_image(enhanced_prompt)
 
@@ -41,11 +43,16 @@ async def run_workflow_a(creative_brief: str) -> dict:
 
         qa_result = await analyze_image(image_result["image_base64"], creative_brief)
         score = qa_result.get("overall_score", 0)
-        costs["llm"] += 0.002
+
+        # use real token costs from QA instead of hardcoded estimate
+        qa_tokens = qa_result.get("token_usage", {})
+        costs["llm"] += qa_tokens.get("cost", 0.002)
+        total_tokens["input"] += qa_tokens.get("input", 0)
+        total_tokens["output"] += qa_tokens.get("output", 0)
 
         if score >= QA_THRESHOLD:
             total_cost = round(costs["llm"] + costs["gpu"], 4)
-            get_client().flush()
+            langfuse_context.flush()
             return {
                 "status": "approved",
                 "image_base64": image_result["image_base64"],
@@ -55,6 +62,7 @@ async def run_workflow_a(creative_brief: str) -> dict:
                 "qa_feedback": qa_result.get("feedback", ""),
                 "retries": retries,
                 "total_time": round(time.time() - start_time, 2),
+                "token_usage": total_tokens,
                 "cost_breakdown": {
                     "llm_cost": round(costs["llm"], 4),
                     "gpu_cost": round(costs["gpu"], 4),
@@ -66,7 +74,7 @@ async def run_workflow_a(creative_brief: str) -> dict:
             retries += 1
 
     total_cost = round(costs["llm"] + costs["gpu"], 4)
-    get_client().flush()
+    langfuse_context.flush()
     return {
         "status": "max_retries_reached",
         "image_base64": image_result["image_base64"],
@@ -76,6 +84,7 @@ async def run_workflow_a(creative_brief: str) -> dict:
         "qa_feedback": qa_result.get("feedback", ""),
         "retries": retries,
         "total_time": round(time.time() - start_time, 2),
+        "token_usage": total_tokens,
         "cost_breakdown": {
             "llm_cost": round(costs["llm"], 4),
             "gpu_cost": round(costs["gpu"], 4),

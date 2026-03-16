@@ -55,12 +55,14 @@ def run_image_workflow(creative_brief):
     with open("output.png", "wb") as f:
         f.write(img_bytes)
     cost = result.get("cost_breakdown", {})
+    tokens = result.get("token_usage", {})
     info = f"""Status: {result['status']}
 QA Score: {result['qa_score']}/10
 QA Feedback: {result['qa_feedback']}
 Model: {result['model_used']}
 Retries: {result['retries']}
 Total Time: {result['total_time']}s
+Tokens: {tokens.get('input', 0)} in / {tokens.get('output', 0)} out
 Cost: ${cost.get('total_cost', 'N/A')} (LLM: ${cost.get('llm_cost', 'N/A')}, GPU: ${cost.get('gpu_cost', 'N/A')})"""
     return "output.png", info
 
@@ -77,12 +79,15 @@ def run_video_workflow(image_file, motion_prompt):
     with open("output.gif", "wb") as f:
         f.write(video_bytes)
     cost = result.get("cost_breakdown", {})
+    validation = result.get("input_validation", {})
     info = f"""Status: {result['status']}
 QA Score: {result.get('qa_score', 'N/A')}/10
 QA Feedback: {result.get('qa_feedback', 'N/A')}
 Model: {result['model_used']}
 Enhanced Prompt: {result.get('enhanced_prompt', 'N/A')}
+Input: {validation.get('width', '?')}x{validation.get('height', '?')} {validation.get('format', '?')}
 Frames: {result['num_frames']}
+Duration: {result.get('duration_seconds', 'N/A')}s
 Latency: {result.get('latency_seconds', 'N/A')}s
 Total Time: {result['total_time']}s
 Cost: ${cost.get('total_cost', 'N/A')} (LLM: ${cost.get('llm_cost', 'N/A')}, GPU: ${cost.get('gpu_cost', 'N/A')})"""

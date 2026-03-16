@@ -10,6 +10,7 @@ load_dotenv()
 mcp = FastMCP("media-tools")
 
 FLUX_ENDPOINT = "https://eensaydn--feraset-image-server-fluximageserver-generate.modal.run"
+VIDEO_ENDPOINT = "https://eensaydn--wan-video-gen-generate-video.modal.run"
 
 
 @mcp.tool()
@@ -20,6 +21,22 @@ async def generate_image(prompt: str, aspect_ratio: str = "1:1", seed: int = 42)
             "prompt": prompt,
             "aspect_ratio": aspect_ratio,
             "seed": seed,
+        })
+
+    if response.status_code != 200:
+        return {"error": f"Failed: {response.status_code}"}
+
+    return response.json()
+
+
+@mcp.tool()
+async def generate_video(image_base64: str, prompt: str, num_frames: int = 16) -> dict:
+    """Generate a video from an image using Wan2.1 model on Modal."""
+    async with httpx.AsyncClient(timeout=600, follow_redirects=True) as client:
+        response = await client.post(VIDEO_ENDPOINT, json={
+            "image_base64": image_base64,
+            "prompt": prompt,
+            "num_frames": num_frames,
         })
 
     if response.status_code != 200:
@@ -71,7 +88,7 @@ Respond in this exact JSON format only, no other text:
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         result = json.loads(text)
-    except:
+    except Exception:
         result = {
             "prompt_adherence": 5,
             "visual_quality": 5,
