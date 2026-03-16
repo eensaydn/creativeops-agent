@@ -21,6 +21,20 @@ For the storage layer I'd use Redis for short-lived assets during workflow execu
 
 This change would make the full agent-to-agent MCP pipeline work: Orchestrator Agent delegates to Image Agent via MCP handoff, Image Agent calls generate_image MCP tool, gets back an asset_id, passes it to QA Agent via MCP handoff, QA Agent calls analyze_image MCP tool with the asset_id. All through MCP, no base64 in context.
 
+## Moving from API Models to Fine-tuned Open Source Models 
+
+https://research.nvidia.com/labs/lpr/slm-agents/ (I'm working on multi-agent systems for my master)
+
+Right now the system uses OpenAI's gpt-4o-mini for everything - prompt enhancement, QA scoring, vision analysis. It works and it's cheap, but we're still paying per token and we depend on an external API.
+
+There's a recent NVIDIA research paper ("Small Language Models are the Future of Agentic AI", 2025) that argues most tasks in agentic systems are repetitive and narrow enough that small open source models (under 10B parameters) can handle them just as well as big models. Their point is simple: agents don't need a genius generalist, they need a reliable specialist.
+
+This fits our system well. Our agents do the same few things over and over - enhance a prompt, score an image, check quality. These are exactly the kind of narrow, repetitive tasks where a fine-tuned 7-8B model can match gpt-4o-mini. Models like Phi-3 (7B), SmolLM2 (1.7B), or xLAM-2 (8B) already show competitive performance on tool calling and instruction following compared to much larger models.
+
+The path would be: collect prompt-response pairs from our production traffic (the Data Flywheel above), fine-tune something like Llama 3 8B or Phi-3 with LoRA, self-host it on the same Modal infrastructure we already use for image/video models. No more per-token API costs, no external dependency, and we control the model completely.
+
+This isn't something I'd do on day one - the OpenAI API is fine for getting started. But at scale with millions of users, switching the agent backbone from paid API to self-hosted fine-tuned SLM would cut LLM costs significantly.
+
 ## FinOps & Cost Optimization
 
 Right now cost tracking is basic - GPU cost from inference latency and LLM cost from real token usage. Works for a demo but not at scale.
