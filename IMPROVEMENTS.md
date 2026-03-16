@@ -2,6 +2,25 @@
 
 How I'd evolve this system for production scale.
 
+## MCP Integration & Asset Storage Layer
+
+Right now the MCP server works - it exposes 3 tools (generate_image, generate_video, analyze_image) and any MCP client can connect and call them. I tested this with a client script that triggers tools via MCP protocol and it works fine.
+
+But the workflows don't use MCP internally. They call tool functions directly via Python imports. The reason is practical: a single generated image is ~2 million characters of base64 data. If an agent calls a tool via MCP and gets that back, it lands in the LLM's context window. gpt-4o-mini has a 128K token limit, 2 million characters is roughly 500K tokens. It simply doesn't fit.
+
+The right fix is an asset storage layer. Instead of passing raw base64 between agents, each tool saves the generated asset to a storage service and returns just an ID or URL. The flow would look like:
+
+1. Agent calls generate_image via MCP
+2. The tool generates the image, uploads it to S3 or Google Cloud Storage, returns `{"asset_id": "img_abc123", "model_used": "FLUX.1-schnell"}`
+3. Agent passes that asset_id to the QA tool via MCP
+4. QA tool fetches the image from storage using the asset_id, analyzes it, returns the score
+
+Now agents only pass small strings (asset IDs, scores, feedback) through the LLM context. The heavy binary data lives in storage and never touches the LLM.
+
+For the storage layer I'd use Redis for short-lived assets during workflow execution (fast reads, auto-expiry after 1 hour) and Google Cloud Storage for final approved assets that need to persist. This also solves the data persistence problem - right now everything is stateless, once a workflow returns its result the image is gone. With GCS the assets stick around and can be served to the mobile app via a CDN.
+
+This change would make the full agent-to-agent MCP pipeline work: Orchestrator Agent delegates to Image Agent via MCP handoff, Image Agent calls generate_image MCP tool, gets back an asset_id, passes it to QA Agent via MCP handoff, QA Agent calls analyze_image MCP tool with the asset_id. All through MCP, no base64 in context.
+
 ## FinOps & Cost Optimization
 
 Right now cost tracking is basic - GPU cost from inference latency and LLM cost from real token usage. Works for a demo but not at scale.
