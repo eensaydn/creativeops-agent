@@ -14,7 +14,7 @@ os.environ["LANGFUSE_BASE_URL"] = os.getenv("LANGFUSE_HOST", "https://cloud.lang
 
 GPU_COST_PER_SECOND_A100 = 0.000694
 AGENT_CALL_ESTIMATE = 0.001
-FRAME_DURATION_MS = 100  # each GIF frame is 100ms
+FRAME_DURATION_MS = 100 
 
 
 def validate_input_image(image_base64: str) -> dict:
@@ -61,17 +61,14 @@ async def run_workflow_b(image_base64: str, motion_prompt: str) -> dict:
     costs = {"llm": 0, "gpu": 0}
     total_tokens = {"input": 0, "output": 0}
 
-    # step 1: validate input image
     validation = validate_input_image(image_base64)
     if not validation["valid"]:
         return {"status": "error", "result": validation["error"]}
 
-    # step 2: enhance motion prompt
     result = await Runner.run(video_agent, motion_prompt)
     enhanced_prompt = result.final_output
     costs["llm"] += AGENT_CALL_ESTIMATE
 
-    # step 3: generate video
     video_result = await generate_video(image_base64, enhanced_prompt)
 
     if "error" in video_result:
@@ -80,7 +77,6 @@ async def run_workflow_b(image_base64: str, motion_prompt: str) -> dict:
     gpu_latency = video_result.get("latency_seconds", 0)
     costs["gpu"] += gpu_latency * GPU_COST_PER_SECOND_A100
 
-    # step 4: QA on generated video (extract first frame for vision analysis)
     num_frames = video_result.get("num_frames", 16)
     video_duration = round(num_frames * FRAME_DURATION_MS / 1000, 1)
 

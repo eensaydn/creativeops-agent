@@ -23,7 +23,7 @@ model_cache = modal.Volume.from_name("video-model-cache", create_if_missing=True
     gpu="A100-80GB",
     scaledown_window=60,
     image=image,
-    timeout=600,
+    timeout=900,
     volumes={"/models": model_cache},
     secrets=[modal.Secret.from_name("huggingface-secret", required_keys=["HF_TOKEN"])],
 )

@@ -12,7 +12,7 @@ os.environ["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY", "")
 os.environ["LANGFUSE_BASE_URL"] = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
 
 GPU_COST_PER_SECOND_L40S = 0.000542
-AGENT_CALL_ESTIMATE = 0.001  # estimated cost for prompt enhancement call
+AGENT_CALL_ESTIMATE = 0.001 
 
 
 @observe()
@@ -44,7 +44,6 @@ async def run_workflow_a(creative_brief: str) -> dict:
         qa_result = await analyze_image(image_result["image_base64"], creative_brief)
         score = qa_result.get("overall_score", 0)
 
-        # use real token costs from QA instead of hardcoded estimate
         qa_tokens = qa_result.get("token_usage", {})
         costs["llm"] += qa_tokens.get("cost", 0.002)
         total_tokens["input"] += qa_tokens.get("input", 0)
