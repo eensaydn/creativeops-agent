@@ -4,7 +4,7 @@ Multi-agent system that generates images and videos from creative briefs.
 
 ## Demo Video
 
-[Loom Video - Architecture walkthrough and live demo](LOOM_LINK_HERE)
+[Loom Video - Architecture walkthrough and live demo](https://www.loom.com/share/7c0388de2a0c4051bb0dcc494ce60f26 )
 
 ## Live URLs
 
