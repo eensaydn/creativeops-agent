@@ -1,100 +1,124 @@
 # CreativeOps Agent
 
-Multi-agent system that generates images and videos from creative briefs.
+Multi-agent orchestration system for AI-powered creative content generation. Built with OpenAI Agents SDK, self-hosted GPU models on Modal, and deployed on GCP Cloud Run.
 
-## Demo Video
+The system receives high-level creative briefs, decomposes them into steps, coordinates between specialized agents and self-hosted models, and produces final outputs with quality control and cost tracking.
 
-[Loom Video - Architecture walkthrough and live demo](https://www.loom.com/share/7c0388de2a0c4051bb0dcc494ce60f26 )
+## Architecture
+```
+                         ┌──────────────────┐
+                         │   FastAPI + UI    │
+                         │   (Gradio)        │
+                         └────────┬─────────┘
+                                  │
+                    ┌─────────────┴─────────────┐
+                    │                             │
+            ┌───────▼───────┐           ┌────────▼────────┐
+            │  Workflow A    │           │   Workflow B     │
+            │  (Image Gen)   │           │  (Image→Video)  │
+            └───────┬───────┘           └────────┬────────┘
+                    │                             │
+         ┌──────────┼──────────┐       ┌──────────┼──────────┐
+         │          │          │       │          │          │
+    ┌────▼───┐ ┌───▼────┐ ┌──▼──┐ ┌──▼────┐ ┌──▼─────┐ ┌──▼──┐
+    │ Image  │ │  FLUX   │ │ QA  │ │ Video │ │ Wan2.1 │ │ QA  │
+    │ Agent  │ │ (Modal) │ │Agent│ │ Agent │ │(Modal) │ │Agent│
+    │gpt-4o  │ │ L40S    │ │gpt4o│ │gpt-4o │ │A100-80 │ │gpt4o│
+    └────────┘ └────────┘ └─────┘ └───────┘ └───────┘ └─────┘
+                    │                             │
+              ┌─────▼─────┐                 ┌─────▼─────┐
+              │  Langfuse  │                │  Langfuse  │
+              │  (trace +  │                │  (trace +  │
+              │   costs)   │                │   costs)   │
+              └───────────┘                └───────────┘
+```
 
-## Live URLs
+## Workflows
 
-- API: https://creativeops-agent-983099118800.us-central1.run.app
-- Demo UI: https://creativeops-agent-983099118800.us-central1.run.app/ui
-- Swagger Docs: https://creativeops-agent-983099118800.us-central1.run.app/docs
-- Observability: https://cloud.langfuse.com (credentials shared separately)
+**Workflow A — Image Generation Pipeline**
 
-## How it works
+1. User submits a creative brief (e.g. "cyberpunk samurai in neon-lit Tokyo")
+2. Image Agent enhances the prompt with lighting, composition, style details
+3. Enhanced prompt goes to self-hosted FLUX.1-schnell on Modal (L40S GPU)
+4. QA Agent analyzes the generated image using gpt-4o-mini vision
+5. If QA score < 7/10, regenerates with feedback (max 2 retries)
+6. Returns approved image + metadata + QA score + cost breakdown
 
-There are two workflows:
+**Workflow B — Image-to-Video Pipeline**
 
-**Workflow A (Image Generation):** User gives a text brief like "cyberpunk samurai in Tokyo". The Image Agent enhances the prompt, FLUX model generates the image on Modal, QA Agent checks quality with vision. If score is below 7/10 it retries with feedback, up to 2 times. Returns the image with metadata, QA score, and cost breakdown.
+1. User provides an image and a motion prompt (e.g. "slow camera pan right")
+2. Video Agent enhances the motion prompt with camera movement details
+3. Enhanced prompt + image goes to self-hosted Wan2.1-I2V-14B on Modal (A100-80GB)
+4. QA Agent analyzes the output for quality and motion coherence
+5. Returns video + metadata + QA score + cost breakdown
 
-**Workflow B (Image-to-Video):** User uploads an image and gives a motion prompt like "slow camera pan right". First the input image is validated (dimensions, format). The Video Agent enhances the motion prompt, Wan2.1-I2V-14B model generates a video on Modal. QA Agent analyzes the first frame of the generated video for quality and motion coherence. Returns the video with metadata, duration, QA score, and cost breakdown.
+## Tech Stack
 
-## Architecture overview
+| Component | Technology | Why |
+|-----------|-----------|-----|
+| Agent Framework | OpenAI Agents SDK | Built-in MCP support, clean API, multi-agent handoffs |
+| LLM | gpt-4o-mini | Cheap, vision support for QA, good for prompt engineering |
+| Image Model | FLUX.1-schnell | Fast inference, good quality, open source |
+| Video Model | Wan2.1-I2V-14B | Image-to-video, open source, 14B params |
+| GPU Platform | Modal | Serverless GPUs, pay-per-second, cold start management |
+| API | FastAPI | Async, auto-generated docs, easy to deploy |
+| Observability | Langfuse | Tracing, cost tracking, token usage logging |
+| MCP | FastMCP | Exposes tools via Model Context Protocol |
+| Deployment | GCP Cloud Run | Serverless, scales to zero, Dockerfile based |
+| Demo UI | Gradio | Quick prototyping, mounted on FastAPI |
+| CI/CD | GitHub Actions | Lint (ruff), test (pytest), deploy |
 
-The system uses code-level orchestration instead of full agent handoffs. I tried handoffs first but base64 image data is millions of characters and doesn't fit in the LLM context window. So the LLM only handles reasoning (like prompt enhancement and QA scoring) and the data flow happens in code. This is actually the right pattern for production too - you don't want to pass huge binary data through an LLM.
+## Key Design Decisions
 
-**Agents:**
+**Code-level orchestration over agent handoffs**
 
-- Image Agent - takes a brief and makes it into a better prompt for FLUX
-- Video Agent - takes a motion prompt and enhances it for Wan2.1
-- QA Agent - looks at generated images/video frames using gpt-4o-mini vision and scores them
-- Orchestrator Agent - defined with handoffs for MCP support
+Initially tried full agent handoffs where the orchestrator delegates to image agent, then to QA agent. But base64 image data is millions of characters and blew up the LLM context window. Switched to a pattern where LLM handles reasoning (prompt enhancement, QA scoring) and code handles data flow. This is the right approach for production — binary data should never flow through an LLM.
 
-**Tools:**
+**gpt-4o-mini for QA instead of Gemini**
 
-- image_tool.py - calls FLUX endpoint on Modal, traced with @observe
-- qa_tool.py - calls gpt-4o-mini vision for quality analysis, logs real token usage
-- video_tool.py - calls Wan2.1 endpoint on Modal, traced with @observe
+Originally planned to use Google Gemini for QA (free tier). But Google cut their free tier limits significantly in late 2025, causing constant 429 rate limit errors. Switched to gpt-4o-mini with `detail: low` for vision — costs about $0.002 per QA call.
 
-**MCP Server:**
+**GPU memory management for video model**
 
-- media_server.py exposes generate_image, generate_video, and analyze_image as MCP tools using FastMCP. Any MCP-compatible client can connect and invoke these tools.
+Wan2.1-I2V-14B (14 billion params) didn't fit on A100-40GB. Solutions applied:
+- Upgraded to A100-80GB
+- Used `enable_model_cpu_offload()` to move inactive layers to CPU RAM
+- Added `output_type="pil"` because default numpy output caused frame saving errors
+- Added `follow_redirects=True` in httpx because Modal returns HTTP 303 for requests >150s
 
-**Observability:**
+## Cost Tracking
 
-- Langfuse with @observe decorator on workflows AND individual tool calls
-- Real token usage tracking (input/output tokens from OpenAI API response)
-- Cost tracking per workflow (LLM token costs + GPU inference costs)
-- Tool call logging with latency, model info, and error states
+Each workflow returns a cost breakdown:
+```json
+{
+  "cost_breakdown": {
+    "llm_cost": 0.003,
+    "gpu_cost": 0.0012,
+    "total_cost": 0.0042
+  }
+}
+```
 
-## Framework choice
-
-I picked OpenAI Agents SDK. Here's why and what else I considered:
-
-**OpenAI Agents SDK** - what I went with. It has built-in MCP support which was a requirement. The API is clean, you define an Agent with instructions and tools and it just works. Multi-agent handoffs are built in. Less boilerplate than LangGraph.
-
-**LangGraph** - I looked at this. It's powerful and flexible but requires more setup. You need to define state schemas, graph nodes, edges etc. For this project it felt like overkill. Good for complex stateful workflows though.
-
-The trade-off with OpenAI Agents SDK is that you're tied to OpenAI as LLM provider. But since I'm using gpt-4o-mini anyway (cheap and has vision support) this wasn't a problem. If I needed to switch providers later I'd probably move to LangGraph.
-
-## Why gpt-4o-mini for everything?
-
-I originally planned to use Gemini for QA since it's free. But Google cut their free tier limits in late 2025 and I kept hitting 429 errors. Switched to gpt-4o-mini with detail:low for vision analysis. It's cheap (about $0.001 per QA call) and works well.
-
-## Self-hosted models
-
-**Image: FLUX.1-schnell on Modal (L40S GPU)**
-
-- scaledown_window=300 for cold start management
-- Cold start takes ~45s, then ~5s per image
-- Model cached in Modal Volume
-
-**Video: Wan2.1-I2V-14B on Modal (A100-80GB GPU)**
-
-- enable_model_cpu_offload() because 14B params needs careful memory management
-- Had to use A100-80GB, A100-40GB gave OOM errors
-- output_type="pil" needed because default numpy output caused issues
-- follow_redirects=True in httpx client because Modal returns 303 for long-running requests
-- Cold start takes ~2min, inference ~100s
-
-## Cost tracking
-
-Each workflow returns a cost_breakdown with llm_cost, gpu_cost, and total_cost. GPU costs are calculated from actual inference latency times the per-second rate of the GPU used (L40S: $0.000542/s, A100-80GB: $0.000694/s). LLM costs are calculated from real token usage returned by the OpenAI API.
+GPU costs calculated from actual inference latency:
+- FLUX on L40S: $0.000542/sec
+- Wan2.1 on A100-80GB: $0.000694/sec
 
 ## Setup
-
-```
+```bash
 git clone https://github.com/eensaydn/creativeops-agent.git
 cd creativeops-agent
 python -m venv venv
-venv\Scripts\activate
+venv\Scripts\activate        # Windows
+source venv/bin/activate     # macOS/Linux
 pip install -r requirements.txt
 ```
 
-Copy .env.example to .env and fill in your keys:
+Create a `.env` file from the example:
+```bash
+cp .env.example .env
+```
 
+Fill in your API keys:
 ```
 OPENAI_API_KEY=your_key
 LANGFUSE_PUBLIC_KEY=your_key
@@ -102,61 +126,65 @@ LANGFUSE_SECRET_KEY=your_key
 LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
-## How to run locally
+For GPU models, you need a Modal account and deployed FLUX + Wan2.1 endpoints. See `modal_serving/` for deployment code.
 
-Start the API + Gradio UI:
-
-```
+## Running Locally
+```bash
 uvicorn main:app --reload
 ```
 
-Then open:
+- Gradio UI: http://127.0.0.1:8000/ui
+- Swagger Docs: http://127.0.0.1:8000/docs
+- Health Check: http://127.0.0.1:8000/health
 
-- http://127.0.0.1:8000/ui for the Gradio demo
-- http://127.0.0.1:8000/docs for Swagger API docs
-
-## How to run workflows
-
-**From the UI:** go to /ui, pick a tab (Image or Video), fill in the fields, click generate.
-
-**From the API:**
-
+## API
 ```
-curl -X POST https://creativeops-agent-983099118800.us-central1.run.app/workflow/image \
+GET  /health           — health check
+POST /workflow/image   — generate image from creative brief
+POST /workflow/video   — generate video from image + motion prompt
+```
+
+Example:
+```bash
+curl -X POST http://127.0.0.1:8000/workflow/image \
   -H "Content-Type: application/json" \
   -d '{"creative_brief": "a sunset over mountains"}'
 ```
 
-**From code:**
-
+## Project Structure
 ```
-python test_workflow_a.py
-python test_video.py
+my_agents/           — agent definitions (image, video, qa, orchestrator)
+tools/               — tool functions with observability (image, video, qa)
+mcp_server/          — MCP server exposing tools via FastMCP
+modal_serving/       — GPU model deployment code for Modal
+workflows/           — workflow orchestration logic
+config/              — settings and constants
+ui/                  — standalone Gradio app for local development
+tests/               — tests
+main.py              — FastAPI application with Gradio mounted at /ui
+Dockerfile           — container for cloud deployment
+.github/workflows/   — CI/CD pipelines (lint, test, deploy)
+IMPROVEMENTS.md      — production scaling roadmap
 ```
 
-## API endpoints
+## Sample Output
 
-- GET /health - health check
-- POST /workflow/image - image generation (takes creative_brief, aspect_ratio, seed)
-- POST /workflow/video - video generation (takes image_base64, motion_prompt, num_frames)
-
-## Deployment
-
-Deployed on GCP Cloud Run. Dockerfile included. CI/CD with GitHub Actions (lint, test, deploy).
-
-## Project structure
-
+**Workflow A:**
 ```
-my_agents/        - agent definitions (image, video, qa, orchestrator)
-tools/            - tool functions with @observe tracing (image, video, qa)
-mcp_server/       - MCP server with FastMCP (image, video, qa tools)
-modal_serving/    - GPU model code for Modal
-workflows/        - workflow orchestration (a and b)
-config/           - settings
-ui/               - standalone Gradio app (for local dev)
-tests/            - basic tests
-main.py           - FastAPI + mounted Gradio
-Dockerfile        - for GCP Cloud Run
-.github/workflows - CI/CD (lint, test, deploy)
-IMPROVEMENTS.md   - production scaling plan
+Status: approved
+QA Score: 8.5/10
+Model: FLUX.1-schnell
+Retries: 0
+Total Time: 11.16s
+Cost: $0.0042 (LLM: $0.003, GPU: $0.0012)
+```
+
+**Workflow B:**
+```
+Status: completed
+Model: Wan2.1-I2V-14B-480P
+Frames: 16
+Latency: 152.06s
+Total Time: 219.93s
+Cost: $0.1065 (LLM: $0.001, GPU: $0.1055)
 ```
